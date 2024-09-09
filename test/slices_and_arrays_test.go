@@ -7,14 +7,17 @@ import (
 )
 
 type SliceStruct struct {
-	Names   []string
-	Numbers []int
+	Names      []string
+	Numbers    []int
+	Str        string
+	EmptySlice []bool
 }
 
 func TestSliceDecoding(t *testing.T) {
 	source := map[string]interface{}{
 		"Names":   []interface{}{"Alice", "Bob"},
 		"Numbers": []interface{}{1, 2, 3},
+		"Str":     "some string",
 	}
 
 	var result SliceStruct

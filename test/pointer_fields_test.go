@@ -20,7 +20,7 @@ func TestPointerFields(t *testing.T) {
 		"Age": age,
 	}
 
-	var profile = &m2o.Profile{}
+	var profile = m2o.NewProfile()
 	decoder, err := m2o.NewDecoder(PointerStruct{}, m2o.WithProfile(profile))
 
 	if err != nil {

@@ -83,7 +83,7 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 			keyPtr := keyCopy.UnsafeAddr()
 			value := mapRange.Value()
 
-			valueUnmarshaler, info := b.buildDecoder(value, value.Type(), 0)
+			valueUnmarshaler, info := b.buildDecoder(value, valueType, 0)
 			debug = append(debug, info...)
 
 			fields = append(fields, fieldDef{
@@ -282,6 +282,10 @@ func _o[K comparable](valueType reflect.Type) *mapToolkit {
 	case reflect.String:
 		return getMapToolkitForKnownKeyAndValueTypes[K, string]()
 	case reflect.Interface:
+		// downgrade to reflection
+		if valueType.NumMethod() > 0 {
+			return nil
+		}
 		return getMapToolkitForKnownKeyAndValueTypes[K, interface{}]()
 	default:
 		return getMapToolkitByKeyTypeAndValueReflection[K](valueType)

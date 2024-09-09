@@ -24,11 +24,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+)
 
 const logSize = 1024
 
-type Profile struct {
+type memoryBlock struct {
+	size uintptr
+	free bool
+}
+
+type profile struct {
 	memoryAllocated        uint64
 	memoryAllocations      [logSize]string
 	memoryAllocationsIndex int32
@@ -36,40 +43,67 @@ type Profile struct {
 	memoryFreed      uint64
 	memoryFrees      [logSize]string
 	memoryFreesIndex int32
+
+	blocks map[uintptr]memoryBlock
 }
 
-func (p *Profile) GetMemoryAllocated() uint64 {
+func NewProfile() *profile {
+	return &profile{
+		blocks: make(map[uintptr]memoryBlock),
+	}
+}
+
+func (p *profile) GetMemoryAllocated() uint64 {
 	return atomic.LoadUint64(&p.memoryAllocated)
 }
 
-func (p *Profile) GetMemoryAllocations() []string {
+func (p *profile) GetMemoryAllocations() []string {
 	index := atomic.LoadInt32(&p.memoryAllocationsIndex)
 	return p.memoryAllocations[:min(logSize-1, index)]
 }
 
-func (p *Profile) addMemoryAllocated(mem uint64, purpose string) {
-	atomic.AddUint64(&p.memoryAllocated, mem)
+func (p *profile) addMemoryAllocated(ptr, size uintptr, purpose string) {
+	p.blocks[ptr] = memoryBlock{
+		size: size,
+	}
+	atomic.AddUint64(&p.memoryAllocated, uint64(size))
 	index := atomic.AddInt32(&p.memoryAllocationsIndex, 1)
 	p.memoryAllocations[(index-1)%logSize] = purpose
 }
 
-func (p *Profile) GetMemoryFreed() uint64 {
+func (p *profile) GetMemoryFreed() uint64 {
 	return atomic.LoadUint64(&p.memoryFreed)
 }
 
-func (p *Profile) GetMemoryFrees() []string {
+func (p *profile) GetMemoryFrees() []string {
 	index := atomic.LoadInt32(&p.memoryFreesIndex)
 	return p.memoryFrees[:min(logSize-1, index)]
 }
 
-func (p *Profile) addMemoryFreed(mem uint64, purpose string) {
-	atomic.AddUint64(&p.memoryFreed, mem)
+func (p *profile) addMemoryFreed(ptr, size uintptr, purpose string) {
+	if mem, ok := p.blocks[ptr]; ok {
+		mem.free = true
+		p.blocks[ptr] = mem
+	} else {
+		panic("freeing not allocated memory?")
+	}
+
+	atomic.AddUint64(&p.memoryFreed, uint64(size))
 	index := atomic.AddInt32(&p.memoryFreesIndex, 1)
 	p.memoryFrees[(index-1)%logSize] = purpose
 }
 
+func (p *profile) HasFreedBlocks() bool {
+	for _, block := range p.blocks {
+		if block.free {
+			return true
+		}
+	}
+	return false
+}
+
 func min(a, b int32) int32 {
-	if a > b {
+	if a < b {
 		return a
 	}
 	return b

@@ -19,13 +19,14 @@ func TestBasicDecoding(t *testing.T) {
 		"Score": 85.5,
 	}
 
-	var result BasicStruct
-	decoder, err := m2o.NewDecoder(BasicStruct{})
+	profile := m2o.NewProfile()
+	decoder, err := m2o.NewDecoder(BasicStruct{}, m2o.WithProfile(profile))
 
 	if err != nil {
 		t.Fatalf("Error creating decoder: %v", err)
 	}
 
+	var result BasicStruct
 	err = decoder.Decode(source, &result)
 
 	if err != nil {
@@ -35,6 +36,8 @@ func TestBasicDecoding(t *testing.T) {
 	if result.Name != "John" || result.Age != 30 || result.Score != 85.5 {
 		t.Errorf("Decoding failed: got %+v", result)
 	}
+
+	checkMemoryUsage(t, profile, &result)
 }
 
 func TestBasicProducing(t *testing.T) {

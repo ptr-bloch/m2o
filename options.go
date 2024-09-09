@@ -120,7 +120,7 @@ func WithCustomDecoder(decoder CustomDecoder) Option {
 	}
 }
 
-func WithProfile(p *Profile) Option {
+func WithProfile(p *profile) Option {
 	return func(b *builder) {
 		b.profile = p
 	}
