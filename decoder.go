@@ -315,6 +315,15 @@ func init() {
 	approximateHeapStart = uintptr(unsafe.Pointer(heapVar)) * 9 / 10
 }
 
+// nil pointer or pointer to stack, which cannot be modified
+// trying to modify memory on stack we can corrupt stack, so we need to use some heuristic which will work in most cases
+// optimizing execution
+// approximateHeapStart > elemAddr - makes assumption that pointer points to stack if it's address tis less
+// than address of an approximate heap start retrieved during application initialization
+func needReallocate(elemAddr uintptr) bool {
+	return elemAddr == 0 || approximateHeapStart > elemAddr
+}
+
 // createDecoderToInterface returns decoderFunc which decodes source data to interface value
 //
 // Parameters:
@@ -346,7 +355,7 @@ func createDecoderToInterface(elementMemoryAllocator memoryAllocator, decodeChil
 		// optimizing execution
 		// approximateHeapStart > elemAddr - makes assumption that pointer points to stack if it's address tis less
 		// than address of an approximate heap start retrieved during application initialization
-		var needReallocate = elemAddr == 0 || approximateHeapStart > elemAddr
+		var needReallocate = needReallocate(elemAddr)
 		if needReallocate {
 			// allocate memory for element which will be assigned to interface
 			// store *byte to ensure GC doesn't collect buffer before its pointer is assigned to interface
@@ -354,7 +363,6 @@ func createDecoderToInterface(elementMemoryAllocator memoryAllocator, decodeChil
 			// elem = new(ElementType)
 			elemPtr = elementMemoryAllocator()
 			elemAddr = uintptr(unsafe.Pointer(elemPtr))
-
 		}
 
 		// elem.* = decode(sourceData)
@@ -458,6 +466,10 @@ func (b *builder) buildToSliceDecoder(value reflect.Value, offset uintptr) (deco
 	}
 }
 
+func zeroSlice(addr uintptr) {
+	*(*[]int)(unsafe.Pointer(addr)) = nil
+}
+
 func sliceUnmarshaler[T any](b *builder, value reflect.Value, sliceOffset uintptr) (decoderFunc, debugInfo) {
 	var underlineValue reflect.Value
 	var elemContainerType = value.Type().Elem()
@@ -476,7 +488,7 @@ func sliceUnmarshaler[T any](b *builder, value reflect.Value, sliceOffset uintpt
 	return func(sourceValue any, parentAddr uintptr, _ bool) {
 		if sourceValue == nil {
 			if zeroOnEmpty {
-				*(*[]int)(unsafe.Pointer(parentAddr + sliceOffset)) = nil
+				zeroSlice(parentAddr + sliceOffset)
 			}
 			return
 		}
@@ -493,6 +505,12 @@ func sliceUnmarshaler[T any](b *builder, value reflect.Value, sliceOffset uintpt
 			}
 
 			sourceLen := sliceValue.Len()
+
+			if sourceLen == 0 {
+				zeroSlice(parentAddr + sliceOffset)
+				return
+			}
+
 			sliceData := makeSlice(sliceAddr, sourceLen)
 			elementAddress := sliceData
 
@@ -540,7 +558,8 @@ func createDecoderToPointer(offset uintptr, elementMemoryAllocator memoryAllocat
 			return
 		}
 
-		if *elemPtr == nil {
+		needReallocate := needReallocate(uintptr(unsafe.Pointer(*elemPtr)))
+		if needReallocate {
 			*elemPtr = elementMemoryAllocator()
 		}
 		elementDecoder(sourceValue, uintptr(unsafe.Pointer(*elemPtr)), false)
@@ -784,6 +803,8 @@ func withInitializer(value reflect.Value) decoderFunc {
 		var uPtr = (*byte)(unsafe.Pointer(u))
 		p := unsafe.Slice(uPtr, size)
 		copy(p, c)
+		// all pointers from value should be alive
+		ensureGCDoesNotCollect(value)
 	}
 }
 
