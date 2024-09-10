@@ -43,7 +43,10 @@ func (layout timeDecoder) GetType() any {
 
 func (layout timeDecoder) Decode(raw any) any {
 	if stringTime, ok := raw.(string); !ok {
-		panic(fmt.Errorf("wrong format for type time.Time, should be a string"))
+		if timeStruct, ok := raw.(time.Time); ok {
+			return timeStruct
+		}
+		panic(fmt.Errorf("wrong format for type time.Time, should be a string, got: %t", raw))
 	} else {
 		t, err := time.Parse(string(layout), stringTime)
 		if err != nil {
