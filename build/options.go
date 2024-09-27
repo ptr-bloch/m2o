@@ -1,3 +1,3 @@
 package build
 
-const MaxOptimizedElementSize = 64
+const MaxOptimizedElementSize = 1024

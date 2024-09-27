@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-type ComplexStruct struct {
-	IntField int
-}
-
 func TestConcurrency(t *testing.T) {
 	source := map[string]interface{}{
 		"Name": "John",

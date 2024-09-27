@@ -68,6 +68,7 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 	make, set := toolkit.Make, toolkit.Set
 
 	var keyMalloc = b.getMemoryAllocator(keyType, "map key")
+	//проблема судя по всему здесь, для динамически собираемых структур аллоцировать нужно не для типа значения мапы, а для типа внутреннего значения
 	var valMalloc = b.getMemoryAllocator(valueType, "map value")
 
 	if value.Len() > 0 {
@@ -80,22 +81,21 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 			keyCopyPointer := reflect.New(keyType)
 			keyCopyPointer.Elem().Set(mapRange.Key())
 			keyCopy := keyCopyPointer.Elem()
-			keyPtr := keyCopy.UnsafeAddr()
+			keyPtr := unsafe.Pointer(keyCopy.UnsafeAddr())
 			value := mapRange.Value()
 
 			valueUnmarshaler, info := b.buildDecoder(value, valueType, 0)
 			debug = append(debug, info...)
 
 			fields = append(fields, fieldDef{
-				u: func(sourceData any, mapHeaderAddress uintptr, isOmitted bool) {
+				u: func(sourceData any, mapHeaderAddress unsafe.Pointer, isOmitted bool) {
 					if isOmitted {
 						return
 					}
 
 					valPtr := valMalloc()
-					valAddr := uintptr(unsafe.Pointer(valPtr))
-					valueUnmarshaler(sourceData, valAddr, isOmitted)
-					set(mapHeaderAddress, keyPtr, valAddr)
+					valueUnmarshaler(sourceData, valPtr, isOmitted)
+					set(mapHeaderAddress, keyPtr, valPtr)
 
 					ensureGCDoesNotCollect(keyCopy)
 					ensureGCDoesNotCollect(valPtr)
@@ -121,8 +121,8 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 		zeroOnEmpty := b.config.zeroOnEmpty
 		copyDefaultsFromBillet := b.config.copyDefaultsFromBillet
 
-		return func(source any, parentAddress uintptr, isOmitted bool) {
-			mapAddr := parentAddress + offsetFromParentAddress
+		return func(source any, parentAddress unsafe.Pointer, isOmitted bool) {
+			mapAddr := unsafe.Pointer(uintptr(parentAddress) + offsetFromParentAddress)
 
 			if source != nil ||
 				source == nil && zeroOnEmpty ||
@@ -156,21 +156,19 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 	valueUnmarshaler, info := b.buildDecoder(reflect.New(valueType).Elem(), valueType, 0)
 	debug = append(debug, info...)
 
-	return func(a any, parentAddress uintptr, isOmitted bool) {
+	return func(a any, parentAddress unsafe.Pointer, isOmitted bool) {
 		inputMap, ok := a.(mapStringAny)
-		mapAddr := parentAddress + offsetFromParentAddress
-		make(mapAddr)
+		mapUnsafePtr := unsafe.Pointer(uintptr(parentAddress) + offsetFromParentAddress)
+		make(mapUnsafePtr)
 
 		if ok {
 			for key, value := range inputMap {
 				keyPtr := keyMalloc()
-				keyAddr := uintptr(unsafe.Pointer(keyPtr))
-				keyUnmarshaler(key, keyAddr, isOmitted)
+				keyUnmarshaler(key, keyPtr, isOmitted)
 
 				valPtr := valMalloc()
-				valAddr := uintptr(unsafe.Pointer(valPtr))
-				valueUnmarshaler(value, valAddr, isOmitted)
-				set(parentAddress+offsetFromParentAddress, keyAddr, valAddr)
+				valueUnmarshaler(value, valPtr, isOmitted)
+				set(mapUnsafePtr, keyPtr, valPtr)
 
 				runtime.KeepAlive(keyPtr)
 				runtime.KeepAlive(valPtr)
@@ -184,22 +182,20 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 			value := iterator.Value().Interface()
 
 			keyPtr := keyMalloc()
-			keyAddr := uintptr(unsafe.Pointer(keyPtr))
-			keyUnmarshaler(key, keyAddr, false)
+			keyUnmarshaler(key, keyPtr, false)
 
 			valPtr := valMalloc()
-			valAddr := uintptr(unsafe.Pointer(valPtr))
-			valueUnmarshaler(value, valAddr, false)
-			set(parentAddress+offsetFromParentAddress, keyAddr, valAddr)
+			valueUnmarshaler(value, valPtr, false)
+			set(unsafe.Pointer(uintptr(parentAddress)+offsetFromParentAddress), keyPtr, valPtr)
 		}
 	}, debug
 }
 
 type mapToolkit struct {
-	Make    func(mapHeaderAddress uintptr)
-	Set     func(mapHeaderAddress, keyAddress, valueAddress uintptr)
-	Delete  func(mapHeaderAddress, keyAddress uintptr)
-	Iterate func(mapHeaderAddress uintptr, visitor func(key, value any))
+	Make    func(mapHeaderAddress unsafe.Pointer)
+	Set     func(mapHeaderAddress, keyAddress, valueAddress unsafe.Pointer)
+	Delete  func(mapHeaderAddress, keyAddress unsafe.Pointer)
+	Iterate func(mapHeaderAddress unsafe.Pointer, visitor func(key, value any))
 }
 
 func (b *builder) getMapToolkit(mapType reflect.Type) (r *mapToolkit) {
@@ -301,22 +297,22 @@ func getMapToolkitForKnownKeyAndValueTypes[K comparable, V any]() *mapToolkit {
 // short name's used because function is widely used from generated code
 func _m[K comparable, V any]() *mapToolkit {
 	return &mapToolkit{
-		Make: func(u uintptr) {
-			*(*map[K]V)(unsafe.Pointer(u)) = make(map[K]V)
+		Make: func(u unsafe.Pointer) {
+			*(*map[K]V)(u) = make(map[K]V)
 		},
-		Set: func(mapAddr, keyAddr, valAddr uintptr) {
-			key := (*K)(unsafe.Pointer(keyAddr))
-			val := (*V)(unsafe.Pointer(valAddr))
-			Map := *(*map[K]V)(unsafe.Pointer(mapAddr))
+		Set: func(mapAddr, keyAddr, valAddr unsafe.Pointer) {
+			key := (*K)(keyAddr)
+			val := (*V)(valAddr)
+			Map := *(*map[K]V)(mapAddr)
 			Map[*key] = *val
 		},
-		Delete: func(mapAddr, keyAddr uintptr) {
-			key := (*K)(unsafe.Pointer(keyAddr))
-			Map := *(*map[K]V)(unsafe.Pointer(mapAddr))
+		Delete: func(mapAddr, keyAddr unsafe.Pointer) {
+			key := (*K)(keyAddr)
+			Map := *(*map[K]V)(mapAddr)
 			delete(Map, *key)
 		},
-		Iterate: func(mapAddr uintptr, visitor func(key any, value any)) {
-			Map := *(*map[K]V)(unsafe.Pointer(mapAddr))
+		Iterate: func(mapAddr unsafe.Pointer, visitor func(key any, value any)) {
+			Map := *(*map[K]V)(mapAddr)
 			for k, v := range Map {
 				visitor(k, v)
 			}
@@ -331,20 +327,20 @@ func (b *builder) getSlowMapMaker(mapType reflect.Type) *mapToolkit {
 	b.debug = append(b.debug, "using map toolkit based on reflection")
 
 	return &mapToolkit{
-		Make: func(mapHeaderAddress uintptr) {
+		Make: func(mapHeaderAddress unsafe.Pointer) {
 			pointerToMap := reflect.NewAt(mapType, unsafe.Pointer(mapHeaderAddress))
 			mapValue := reflect.MakeMap(mapType)
 			pointerToMap.Elem().Set(mapValue)
 		},
-		Set: func(mapHeaderAddress, keyAddress, valueAddress uintptr) {
-			Map := reflect.NewAt(mapType, unsafe.Pointer(mapHeaderAddress)).Elem()
-			key := reflect.NewAt(keyType, unsafe.Pointer(keyAddress)).Elem()
-			value := reflect.NewAt(valueType, unsafe.Pointer(valueAddress)).Elem()
+		Set: func(mapHeaderAddress, keyAddress, valueAddress unsafe.Pointer) {
+			Map := reflect.NewAt(mapType, mapHeaderAddress).Elem()
+			key := reflect.NewAt(keyType, keyAddress).Elem()
+			value := reflect.NewAt(valueType, valueAddress).Elem()
 			Map.SetMapIndex(key, value)
 		},
-		Delete: func(mapHeaderAddress, keyAddress uintptr) {
-			Map := reflect.NewAt(mapType, unsafe.Pointer(mapHeaderAddress)).Elem()
-			key := reflect.NewAt(keyType, unsafe.Pointer(keyAddress)).Elem()
+		Delete: func(mapHeaderAddress, keyAddress unsafe.Pointer) {
+			Map := reflect.NewAt(mapType, mapHeaderAddress).Elem()
+			key := reflect.NewAt(keyType, keyAddress).Elem()
 			value := reflect.Zero(valueType)
 			Map.SetMapIndex(key, value)
 		},

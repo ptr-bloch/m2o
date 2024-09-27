@@ -86,8 +86,7 @@ func newDecoderWithBuilder[T any](something T, builder *builder) (decoder *Decod
 				}
 			}()
 
-			ptr := uintptr(unsafe.Pointer(target))
-			decoderFn(source, ptr, false)
+			decoderFn(source, unsafe.Pointer(target), false)
 			return nil
 		},
 		buildInfo: buildInfo,
@@ -107,7 +106,7 @@ func newDecoderWithBuilder[T any](something T, builder *builder) (decoder *Decod
 //
 // No errors expected. Panics if source data cannot be decoded into target type
 // Panic should be caught within library and regular error should be returned
-type decoderFunc func(sourceData any, targetAddr uintptr, isOmitted bool)
+type decoderFunc func(sourceData any, targetAddr unsafe.Pointer, isOmitted bool)
 
 type debugInfo []string
 
@@ -199,7 +198,7 @@ func (b *builder) buildDecoder(value reflect.Value, containerType reflect.Type, 
 		return cached, nil
 	}
 
-	b.cache[cacheKey] = func(a any, u uintptr, isOmitted bool) {
+	b.cache[cacheKey] = func(a any, u unsafe.Pointer, isOmitted bool) {
 		b.cache[cacheKey](a, u, isOmitted)
 	}
 
@@ -222,7 +221,7 @@ func (b *builder) buildDecoder(value reflect.Value, containerType reflect.Type, 
 		}
 	}
 
-	b.cache[cacheKey] = func(a any, u uintptr, isOmitted bool) {
+	b.cache[cacheKey] = func(a any, u unsafe.Pointer, isOmitted bool) {
 		decoder(a, u, isOmitted)
 	}
 
@@ -253,7 +252,7 @@ func getCacheKey(value reflect.Value, containerType reflect.Type, offset uintptr
 }
 
 type interfaceHeader struct {
-	TypeAddr, DataAddr uintptr
+	TypeAddr, DataAddr unsafe.Pointer
 }
 
 // buildDecoderToInterfaceValue builds decoder for non-empty interface value
@@ -285,7 +284,7 @@ func (b *builder) buildDecoderToInterfaceValue(value reflect.Value, containerTyp
 	return finalDecoder, debugInfo
 }
 
-func getInterfaceSetter(interfaceType reflect.Type, underlineElementValue reflect.Value) func(uintptr, uintptr) {
+func getInterfaceSetter(interfaceType reflect.Type, underlineElementValue reflect.Value) func(unsafe.Pointer, unsafe.Pointer) {
 	//isTypedInterface := interfaceType.NumMethod() > 0
 	//structHasMultipleFields := underlineElementValue.Kind() == reflect.Struct && underlineElementValue.NumField() > 1
 	//if isTypedInterface || structHasMultipleFields {
@@ -298,12 +297,12 @@ func getInterfaceSetter(interfaceType reflect.Type, underlineElementValue reflec
 	//	}
 	//}
 	underlineElementType := underlineElementValue.Type()
-	return func(i, v uintptr) {
-		if v == 0 {
-			assignToInterface(i, 0, 0)
+	return func(i, v unsafe.Pointer) {
+		if v == nil {
+			assignToInterface(i, nil, nil)
 		} else {
-			val := reflect.NewAt(underlineElementType, unsafe.Pointer(v)).Elem()
-			reflect.NewAt(interfaceType, unsafe.Pointer(i)).Elem().Set(val)
+			val := reflect.NewAt(underlineElementType, v).Elem()
+			reflect.NewAt(interfaceType, i).Elem().Set(val)
 		}
 	}
 }
@@ -318,10 +317,10 @@ func init() {
 // nil pointer or pointer to stack, which cannot be modified
 // trying to modify memory on stack we can corrupt stack, so we need to use some heuristic which will work in most cases
 // optimizing execution
-// approximateHeapStart > elemAddr - makes assumption that pointer points to stack if it's address tis less
+// approximateHeapStart > elemAddr - makes assumption that pointer points to stack if it's address is less
 // than address of an approximate heap start retrieved during application initialization
-func needReallocate(elemAddr uintptr) bool {
-	return elemAddr == 0 || approximateHeapStart > elemAddr
+func needReallocate(elemAddr unsafe.Pointer) bool {
+	return elemAddr == nil || approximateHeapStart > uintptr(elemAddr)
 }
 
 // createDecoderToInterface returns decoderFunc which decodes source data to interface value
@@ -335,42 +334,42 @@ func needReallocate(elemAddr uintptr) bool {
 // Returns:
 //
 //   - decoderFunc
-func createDecoderToInterface(elementMemoryAllocator memoryAllocator, decodeChildElement decoderFunc, assignToInterface func(i, v uintptr), offsetInParent uintptr, zeroOnEmpty bool) decoderFunc {
-	return func(sourceData any, parentAddress uintptr, isOmitted bool) {
-		interfaceHeaderAddr := parentAddress + offsetInParent
-		interfaceHeaderPtr := (*interfaceHeader)(unsafe.Pointer(interfaceHeaderAddr))
+func createDecoderToInterface(elementMemoryAllocator memoryAllocator, decodeChildElement decoderFunc, assignToInterface func(i, v unsafe.Pointer), offsetInParent uintptr, zeroOnEmpty bool) decoderFunc {
+	return func(sourceData any, parentAddress unsafe.Pointer, isOmitted bool) {
+		interfaceHeaderUPtr := unsafe.Pointer(uintptr(parentAddress) + offsetInParent)
+		interfaceHeaderPtr := (*interfaceHeader)(interfaceHeaderUPtr)
 
 		if isOmitted {
 			if zeroOnEmpty {
-				assignToInterface(interfaceHeaderAddr, 0)
+				assignToInterface(interfaceHeaderUPtr, nil)
 			}
 			return
 		}
 
-		var elemAddr = interfaceHeaderPtr.DataAddr
-		var elemPtr *byte
+		var elemUnsafePtr = interfaceHeaderPtr.DataAddr
+		var elemPtr unsafe.Pointer
 
 		// nil pointer or pointer to stack, which cannot be modified
 		// trying to modify memory on stack we can corrupt stack, so we need to use some heuristic which will work in most cases
 		// optimizing execution
 		// approximateHeapStart > elemAddr - makes assumption that pointer points to stack if it's address tis less
 		// than address of an approximate heap start retrieved during application initialization
-		var needReallocate = needReallocate(elemAddr)
+		var needReallocate = needReallocate(elemUnsafePtr)
 		if needReallocate {
 			// allocate memory for element which will be assigned to interface
 			// store *byte to ensure GC doesn't collect buffer before its pointer is assigned to interface
 			//
 			// elem = new(ElementType)
 			elemPtr = elementMemoryAllocator()
-			elemAddr = uintptr(unsafe.Pointer(elemPtr))
+			elemUnsafePtr = unsafe.Pointer(elemPtr)
 		}
 
 		// elem.* = decode(sourceData)
-		decodeChildElement(sourceData, elemAddr, isOmitted)
+		decodeChildElement(sourceData, elemUnsafePtr, isOmitted)
 
 		if needReallocate {
 			// parent.field = newElem // assuming parent.field is of interface type
-			assignToInterface(interfaceHeaderAddr, elemAddr)
+			assignToInterface(interfaceHeaderUPtr, elemUnsafePtr)
 			ensureGCDoesNotCollect(elemPtr)
 		}
 	}
@@ -386,11 +385,11 @@ func createDecoderToInterface(elementMemoryAllocator memoryAllocator, decodeChil
 //   - interfaceHeaderAddr: The address where the pointer to the element should be stored.
 //   - originalInterfaceTypeAddr: The address of the internal representation of the Go type.
 //   - concreteValueAddr: The address of the concrete value the interface should point to.
-func assignToInterface(interfaceHeaderAddr, originalInterfaceTypeAddr, concreteValueAddr uintptr) {
-	if concreteValueAddr == 0 {
-		originalInterfaceTypeAddr = 0
+func assignToInterface(interfaceHeaderUPtr, originalInterfaceTypeAddr, concreteValueAddr unsafe.Pointer) {
+	if concreteValueAddr == nil {
+		originalInterfaceTypeAddr = nil
 	}
-	newHeaderPointer := (*interfaceHeader)(unsafe.Pointer(interfaceHeaderAddr))
+	newHeaderPointer := (*interfaceHeader)(interfaceHeaderUPtr)
 	newHeaderPointer.TypeAddr = originalInterfaceTypeAddr
 	newHeaderPointer.DataAddr = concreteValueAddr
 }
@@ -399,7 +398,7 @@ func ensureGCDoesNotCollect(b any) {
 	runtime.KeepAlive(b)
 }
 
-type memoryAllocator func() *byte
+type memoryAllocator func() unsafe.Pointer
 
 // getMemoryAllocator creates a memory allocation function with a specified allocation size.
 // The allocation function returns a pointer to a byte (instead of uintptr or unsafe.Pointer)
@@ -418,21 +417,23 @@ func (b *builder) getMemoryAllocator(t reflect.Type, purpose string) memoryAlloc
 	var align = uintptr(t.Align() - 1)
 	var size = t.Size() + align
 	if b.profile != nil {
-		return func() *byte {
+		return func() unsafe.Pointer {
 			ptr := &make([]byte, size)[0]
+			unsafePtr := unsafe.Pointer(ptr)
 
 			runtime.SetFinalizer(ptr, func(any) {
-				b.profile.addMemoryFreed(uintptr(unsafe.Pointer(ptr)), size, purpose)
+				b.profile.addMemoryFreed(unsafePtr, size, purpose)
 			})
 
-			b.profile.addMemoryAllocated(uintptr(unsafe.Pointer(ptr)), size, purpose)
+			b.profile.addMemoryAllocated(unsafePtr, size, purpose)
 
-			return ptr
+			return unsafePtr
 		}
 	} else {
-		return func() *byte {
+		return func() unsafe.Pointer {
 			startPtr := &make([]byte, size)[0]
-			alignedPtr := (*byte)(unsafe.Pointer((uintptr(unsafe.Pointer(startPtr)) + align) &^ align))
+			// @todo check if can result in freeing by GC during converting
+			alignedPtr := unsafe.Pointer((uintptr(unsafe.Pointer(startPtr)) + align) &^ align)
 			ensureGCDoesNotCollect(startPtr)
 			return alignedPtr
 		}
@@ -466,8 +467,8 @@ func (b *builder) buildToSliceDecoder(value reflect.Value, offset uintptr) (deco
 	}
 }
 
-func zeroSlice(addr uintptr) {
-	*(*[]int)(unsafe.Pointer(addr)) = nil
+func zeroSlice(addr unsafe.Pointer) {
+	*(*[]int)(addr) = nil
 }
 
 func sliceUnmarshaler[T any](b *builder, value reflect.Value, sliceOffset uintptr) (decoderFunc, debugInfo) {
@@ -485,15 +486,15 @@ func sliceUnmarshaler[T any](b *builder, value reflect.Value, sliceOffset uintpt
 	elementSize := underlineValue.Type().Size()
 	makeSlice := getSliceMaker(value.Type())
 	zeroOnEmpty := b.config.zeroOnEmpty || value.Len() == 0
-	return func(sourceValue any, parentAddr uintptr, _ bool) {
+	return func(sourceValue any, parentAddr unsafe.Pointer, _ bool) {
+		sliceAddr := unsafe.Pointer(uintptr(parentAddr) + sliceOffset)
 		if sourceValue == nil {
 			if zeroOnEmpty {
-				zeroSlice(parentAddr + sliceOffset)
+				zeroSlice(sliceAddr)
 			}
 			return
 		}
 
-		sliceAddr := parentAddr + sliceOffset
 		if sourceSlice, ok := sourceValue.([]T); ok {
 			unmarshalTypedSlice(sourceSlice, makeSlice, sliceAddr, elementUnmarshaler, elementSize)
 		} else if sourceSlice, ok := sourceValue.([]interface{}); ok {
@@ -507,7 +508,7 @@ func sliceUnmarshaler[T any](b *builder, value reflect.Value, sliceOffset uintpt
 			sourceLen := sliceValue.Len()
 
 			if sourceLen == 0 {
-				zeroSlice(parentAddr + sliceOffset)
+				zeroSlice(sliceAddr)
 				return
 			}
 
@@ -517,20 +518,19 @@ func sliceUnmarshaler[T any](b *builder, value reflect.Value, sliceOffset uintpt
 			for i := 0; i < sourceLen; i++ {
 				sliceElement := sliceValue.Index(i)
 				elementUnmarshaler(sliceElement.Interface(), elementAddress, false)
-				elementAddress += elementSize
+				elementAddress = unsafe.Pointer(uintptr(elementAddress) + elementSize)
 			}
 		}
 	}, debug
 }
 
-func unmarshalTypedSlice[T any](sourceSlice []T, makeSlice func(where uintptr, capacity int) uintptr, sliceAddress uintptr, elementUnmarshaler decoderFunc, elementSize uintptr) {
+func unmarshalTypedSlice[T any](sourceSlice []T, makeSlice func(where unsafe.Pointer, capacity int) unsafe.Pointer, sliceAddress unsafe.Pointer, elementUnmarshaler decoderFunc, elementSize uintptr) {
 	sourceLen := len(sourceSlice)
 	sliceData := makeSlice(sliceAddress, sourceLen)
 
-	elementAddress := sliceData
 	for i := 0; i < sourceLen; i++ {
+		elementAddress := unsafe.Pointer(uintptr(sliceData) + elementSize*uintptr(i))
 		elementUnmarshaler(sourceSlice[i], elementAddress, false)
-		elementAddress += elementSize
 	}
 }
 
@@ -551,18 +551,18 @@ func (b *builder) buildDecoderToPointer(value reflect.Value, offset uintptr) (de
 }
 
 func createDecoderToPointer(offset uintptr, elementMemoryAllocator memoryAllocator, elementDecoder decoderFunc) decoderFunc {
-	return func(sourceValue any, addressOfTargetPointer uintptr, isOmitted bool) {
-		elemPtr := (**byte)(unsafe.Pointer(addressOfTargetPointer + offset))
+	return func(sourceValue any, addressOfTargetPointer unsafe.Pointer, isOmitted bool) {
+		elemPtr := (*unsafe.Pointer)(unsafe.Pointer(uintptr(addressOfTargetPointer) + offset))
 		if isOmitted {
 			*elemPtr = nil
 			return
 		}
 
-		needReallocate := needReallocate(uintptr(unsafe.Pointer(*elemPtr)))
+		needReallocate := needReallocate(*elemPtr)
 		if needReallocate {
 			*elemPtr = elementMemoryAllocator()
 		}
-		elementDecoder(sourceValue, uintptr(unsafe.Pointer(*elemPtr)), false)
+		elementDecoder(sourceValue, *elemPtr, false)
 	}
 }
 
@@ -742,7 +742,7 @@ func (b *builder) buildToStructDecoder(val reflect.Value, offset uintptr) (decod
 	decoder := composeDecoders(decoders)
 
 	if !b.config.zeroOnEmpty {
-		return func(sourceData any, targetAddr uintptr, isOmitted bool) {
+		return func(sourceData any, targetAddr unsafe.Pointer, isOmitted bool) {
 			if isOmitted {
 				return
 			}
@@ -753,7 +753,7 @@ func (b *builder) buildToStructDecoder(val reflect.Value, offset uintptr) (decod
 }
 
 func notAllFieldsUsed(fieldsCount int) decoderFunc {
-	return func(a any, u uintptr, isOmitted bool) {
+	return func(a any, u unsafe.Pointer, isOmitted bool) {
 		len := reflect.ValueOf(a).Len()
 		if len > fieldsCount {
 			panic(fmt.Errorf("object supports %d fields. Got for decoding: %d", fieldsCount, len))
@@ -768,18 +768,18 @@ func composeDecoders(decoders []decoderFunc) decoderFunc {
 	case 1:
 		return decoders[0]
 	case 2:
-		return func(a any, u uintptr, isOmitted bool) {
+		return func(a any, u unsafe.Pointer, isOmitted bool) {
 			decoders[0](a, u, isOmitted)
 			decoders[1](a, u, isOmitted)
 		}
 	case 3:
-		return func(a any, u uintptr, isOmitted bool) {
+		return func(a any, u unsafe.Pointer, isOmitted bool) {
 			decoders[0](a, u, isOmitted)
 			decoders[1](a, u, isOmitted)
 			decoders[2](a, u, isOmitted)
 		}
 	case 4:
-		return func(a any, u uintptr, isOmitted bool) {
+		return func(a any, u unsafe.Pointer, isOmitted bool) {
 			decoders[0](a, u, isOmitted)
 			decoders[1](a, u, isOmitted)
 			decoders[2](a, u, isOmitted)
@@ -799,8 +799,8 @@ func withInitializer(value reflect.Value) decoderFunc {
 	c := make([]byte, size)
 	copy(c, tmp)
 
-	return func(a any, u uintptr, isOmitted bool) {
-		var uPtr = (*byte)(unsafe.Pointer(u))
+	return func(a any, u unsafe.Pointer, isOmitted bool) {
+		var uPtr = (*byte)(u)
 		p := unsafe.Slice(uPtr, size)
 		copy(p, c)
 		// all pointers from value should be alive
@@ -847,7 +847,7 @@ func (b *builder) buildToScalarValueDecoder(t reflect.Type, offset uintptr) (dec
 
 func (b *builder) buildToCustomDecoder(value reflect.Value, offset uintptr, decoder func(any) any) (decoderFunc, debugInfo) {
 	targetType := value.Type()
-	return func(a any, u uintptr, isOmitted bool) {
+	return func(a any, u unsafe.Pointer, isOmitted bool) {
 		result := decoder(a)
 		resultValue := reflect.ValueOf(result)
 		resultType := resultValue.Type()
@@ -857,13 +857,13 @@ func (b *builder) buildToCustomDecoder(value reflect.Value, offset uintptr, deco
 			panic(fmt.Errorf("custom decoder returned incorrect type: %s instead of %s", gotType, neededType))
 		}
 
-		reflect.NewAt(targetType, unsafe.Pointer(u+offset)).Elem().Set(resultValue)
+		reflect.NewAt(targetType, unsafe.Pointer(uintptr(u)+offset)).Elem().Set(resultValue)
 	}, []string{"used custom decoder"}
 }
 
 func (b *builder) buildToEmptyInterfaceDecoder(offset uintptr) (decoderFunc, debugInfo) {
-	return func(a any, u uintptr, isOmitted bool) {
-		*(*any)(unsafe.Pointer(u + offset)) = a
+	return func(a any, u unsafe.Pointer, isOmitted bool) {
+		*(*any)(unsafe.Pointer(uintptr(u) + offset)) = a
 	}, nil
 }
 
@@ -886,7 +886,7 @@ func toScalarDecoder[T any](b *builder, offset uintptr) (decoderFunc, debugInfo)
 	// split behaviour to omit unnecessary actions in different cases
 	// in future if it will be necessarily this variations can be autogenerated
 	if b.config.zeroOnEmpty {
-		return func(value any, addr uintptr, isOmitted bool) {
+		return func(value any, addr unsafe.Pointer, isOmitted bool) {
 			var typedValue T
 			if isOmitted {
 				// leave zero value untouched
@@ -903,18 +903,18 @@ func toScalarDecoder[T any](b *builder, offset uintptr) (decoderFunc, debugInfo)
 					}
 					// it's a some kind of derivation
 					converted := reflect.ValueOf(value).Convert(targetType)
-					targetValue := reflect.NewAt(targetType, unsafe.Pointer(addr+offset)).Elem()
+					targetValue := reflect.NewAt(targetType, unsafe.Pointer(uintptr(addr)+offset)).Elem()
 					targetValue.Set(converted)
 					return
 				}
 			}
 
 			// Treat add + offset as pointer to memory where value should be placed
-			ptr := (*T)(unsafe.Pointer(addr + offset))
+			ptr := (*T)(unsafe.Pointer(uintptr(addr) + offset))
 			*ptr = typedValue
 		}, nil
 	} else {
-		return func(value any, addr uintptr, isOmitted bool) {
+		return func(value any, addr unsafe.Pointer, isOmitted bool) {
 			if isOmitted {
 				return
 			}
@@ -923,7 +923,7 @@ func toScalarDecoder[T any](b *builder, offset uintptr) (decoderFunc, debugInfo)
 			typedValue := value.(T)
 
 			// Threat add + offset as pointer to memory where slice header should be placed
-			ptr := (*T)(unsafe.Pointer(addr + offset))
+			ptr := (*T)(unsafe.Pointer(uintptr(addr) + offset))
 			*ptr = typedValue
 		}, nil
 	}

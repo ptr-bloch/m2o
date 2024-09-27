@@ -25,7 +25,10 @@ SOFTWARE.
 */
 
 import (
+	"fmt"
+	"reflect"
 	"sync/atomic"
+	"unsafe"
 )
 
 const logSize = 1024
@@ -62,8 +65,8 @@ func (p *profile) GetMemoryAllocations() []string {
 	return p.memoryAllocations[:min(logSize-1, index)]
 }
 
-func (p *profile) addMemoryAllocated(ptr, size uintptr, purpose string) {
-	p.blocks[ptr] = memoryBlock{
+func (p *profile) addMemoryAllocated(ptr unsafe.Pointer, size uintptr, purpose string) {
+	p.blocks[uintptr(ptr)] = memoryBlock{
 		size: size,
 	}
 	atomic.AddUint64(&p.memoryAllocated, uint64(size))
@@ -80,10 +83,10 @@ func (p *profile) GetMemoryFrees() []string {
 	return p.memoryFrees[:min(logSize-1, index)]
 }
 
-func (p *profile) addMemoryFreed(ptr, size uintptr, purpose string) {
-	if mem, ok := p.blocks[ptr]; ok {
+func (p *profile) addMemoryFreed(ptr unsafe.Pointer, size uintptr, purpose string) {
+	if mem, ok := p.blocks[uintptr(ptr)]; ok {
 		mem.free = true
-		p.blocks[ptr] = mem
+		p.blocks[uintptr(ptr)] = mem
 	} else {
 		panic("freeing not allocated memory?")
 	}
@@ -100,6 +103,109 @@ func (p *profile) HasFreedBlocks() bool {
 		}
 	}
 	return false
+}
+
+// CheckObjectPtr checks if the memory blocks for the given object's fields are allocated and not free.
+func (p *profile) CheckObjectPtr(object any) error {
+	val := reflect.ValueOf(object)
+	if val.Kind() != reflect.Pointer {
+		panic("should call with pointer")
+	}
+	val = val.Elem()
+	return p.checkRecursive(val)
+}
+
+// checkRecursive checks the memory of each field recursively.
+func (p *profile) checkRecursive(v reflect.Value) error {
+	switch v.Kind() {
+	case reflect.Ptr:
+		// If it's a pointer, dereference it
+		if v.IsNil() {
+			return nil // Skip nil pointers
+		}
+		ptr := unsafe.Pointer(v.Pointer())
+		address := uintptr(ptr)
+
+		// Check if the pointer's address is in blocks and if it's free
+		if err := p.checkAddress(address); err != nil {
+			return err
+		}
+
+		// Recursively check the value the pointer points to
+		return p.checkRecursive(v.Elem())
+
+	case reflect.Interface:
+		// If it's an interface, get the underlying value and check it
+		if v.IsNil() {
+			return nil // Skip nil interfaces
+		}
+		return p.checkRecursive(v.Elem())
+
+	case reflect.Struct:
+		structAddress := v.UnsafeAddr()
+		if err := p.checkAddress(structAddress); err != nil {
+			return err
+		}
+		// If it's a struct, iterate over its fields
+		for i := 0; i < v.NumField(); i++ {
+			field := v.Field(i)
+
+			// Recursively check each field
+			if err := p.checkRecursive(field); err != nil {
+				return err
+			}
+		}
+
+	case reflect.Array, reflect.Slice:
+		// If it's an array or slice, iterate over the elements
+		for i := 0; i < v.Len(); i++ {
+			elem := v.Index(i)
+
+			// Recursively check each element
+			if err := p.checkRecursive(elem); err != nil {
+				return err
+			}
+		}
+	case reflect.Map:
+		// If it's a map, iterate over the keys and values
+		for _, key := range v.MapKeys() {
+			// Recursively check the key
+			if err := p.checkRecursive(key); err != nil {
+				return err
+			}
+
+			// Recursively check the value
+			val := v.MapIndex(key)
+			if err := p.checkRecursive(val); err != nil {
+				return err
+			}
+		}
+	default:
+		// For all other types, get the address and check it
+		if v.CanAddr() {
+			ptr := unsafe.Pointer(v.UnsafeAddr())
+			address := uintptr(ptr)
+
+			// Check the address in the blocks map
+			if err := p.checkAddress(address); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkAddress checks if the address exists in blocks and if the block is not free.
+func (p *profile) checkAddress(address uintptr) error {
+	block, found := p.blocks[address]
+	if !found {
+		return nil
+		//return fmt.Errorf("address %x not found in profile blocks", address)
+	}
+	if block.free {
+		return fmt.Errorf("memory block at address %x is marked as free", address)
+	}
+	return nil
 }
 
 func min(a, b int32) int32 {

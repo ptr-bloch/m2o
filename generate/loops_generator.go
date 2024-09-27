@@ -113,7 +113,7 @@ import (
 	"unsafe"
 )
 
-type up = uintptr
+type up = unsafe.Pointer
 
 func unrolledLoopOptional(f []fieldDef) d {
 	switch len(f) {
@@ -259,16 +259,16 @@ func getMapToolkitForStructKeyAndValueByReflection(mapType reflect.Type) (r *map
 	return
 }
 
-func _s[T any](where uintptr, capacity int) uintptr {
-	var target = (*[]T)(unsafe.Pointer(where))
+func _s[T any](where unsafe.Pointer, capacity int) unsafe.Pointer {
+	var target = (*[]T)(where)
 	*target = make([]T, capacity)
 	if capacity == 0 {
-		return 0
+		return nil
 	}
-	return uintptr(unsafe.Pointer(&(*target)[0]))
+	return unsafe.Pointer(&(*target)[0])
 }
 
-func getSliceMaker(t reflect.Type) (r func(where uintptr, capacity int) uintptr) {
+func getSliceMaker(t reflect.Type) (r func(where unsafe.Pointer, capacity int) unsafe.Pointer) {
 	// for most cases we have fast solution - just use make function and hope that compiler will inline it
 	// this solution relies on the fact that slice header doesn't contain any type specific information
 	// and everything that matters is slice element size, so we can replace
@@ -282,15 +282,15 @@ func getSliceMaker(t reflect.Type) (r func(where uintptr, capacity int) uintptr)
 	{{- end }}
 	default:
 		// degrade to reflect after {{ .MaxElementSize }} bytes element size
-		r = func(where uintptr, capacity int) uintptr {
+		r = func(where unsafe.Pointer, capacity int) unsafe.Pointer {
 			e := reflect.MakeSlice(t, capacity, capacity)
 			iface := e.Interface()
-			interfaceHeader := (*[2]uintptr)((unsafe.Pointer)(&iface))
-	
+			interfaceHeader := (*[2]unsafe.Pointer)((unsafe.Pointer)(&iface))
+
 			newSliceHeaderPtr := interfaceHeader[1]
 			const headerSize = unsafe.Sizeof([]int{})
-			*(*[headerSize]byte)((unsafe.Pointer)(where)) = *(*[headerSize]byte)((unsafe.Pointer)(newSliceHeaderPtr))
-			return e.Index(0).UnsafeAddr()
+			*(*[headerSize]byte)(where) = *(*[headerSize]byte)(newSliceHeaderPtr)
+			return e.Index(0).UnsafePointer()
 		}
 	}
 	return 

@@ -59,9 +59,18 @@ func TestPointerFields(t *testing.T) {
 	//checkMemory(t, result, profile)
 }
 
-func testMemory() {
-
-}
+//func TestPointerToStackValueReinitialized(t *testing.T) {
+//	var str = "123"
+//	var ptr = (*string)(unsafe.Pointer(uintptr(unsafe.Pointer(&str)) ^ 0))
+//	var billet = PointerStruct{
+//		Name: ptr,
+//	}
+//	decoder, _ := m2o.NewDecoder(billet)
+//	_ = decoder.Decode(map[string]interface{}{"Name": "321"}, &billet)
+//	if unsafe.Pointer(ptr) == unsafe.Pointer(billet.Name) {
+//		t.Fatal("pointer is not Reinitialized")
+//	}
+//}
 
 func SizeOf(v interface{}) uintptr {
 	val := reflect.ValueOf(v)
