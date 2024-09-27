@@ -48,6 +48,18 @@ func rangeInclude(start, end int) []int {
 	return r
 }
 
+func rangeSize(max int) []int {
+	r := make([]int, max/8+2)
+	r[0] = 2
+	r[1] = 4
+	k := 8
+	for i := 2; i < len(r); i++ {
+		r[i] = k
+		k += 8
+	}
+	return r
+}
+
 func div(a, b int) int {
 	return a / b
 }
@@ -237,7 +249,7 @@ type b = byte
 func getMapToolkitByKeyTypeAndValueReflection[K comparable](elementType reflect.Type) (r *mapToolkit) {
 	elementSize := elementType.Size()
 	switch elementSize {
-	{{- range $index := rangeInclude 1 .MaxElementSize }}
+	{{- range $index := rangeSize .MaxElementSize }}
 	case {{ $index }}: r = _m[K, [{{ $index }}]b]()
 	{{- end }}
 	default:
@@ -250,7 +262,7 @@ func getMapToolkitForStructKeyAndValueByReflection(mapType reflect.Type) (r *map
 	keySize := mapType.Key().Size()
 	e := mapType.Elem() 
 	switch keySize {
-	{{- range $index := rangeInclude 1 .MaxElementSize }}
+	{{- range $index := rangeSize .MapKeySize }}
 	case {{ $index }}: r = _o[[{{ $index }}]b](e)
 	{{- end }}
 	default:
@@ -276,7 +288,7 @@ func getSliceMaker(t reflect.Type) (r func(where unsafe.Pointer, capacity int) u
 	// this solution degrades when element size exceeds predefined sizes
 	// to speed of reflect.MakeSlice
 	switch t.Elem().Size() {
-	{{- range $index := rangeInclude 1 .MaxElementSize }}
+	{{- range $index := rangeSize .MaxElementSize }}
 	case {{ $index }}:
 		r = _s[[{{ $index }}]b]
 	{{- end }}
@@ -329,6 +341,7 @@ var b = *(*[{{$count}}]fieldDef)(unsafe.Pointer((&f[0])))
 type loopTemplateData struct {
 	LoopSize       int
 	MaxElementSize int
+	MapKeySize     int
 }
 
 func main() {
@@ -339,15 +352,16 @@ func main() {
 	}
 	defer file.Close()
 
-	count := build.MaxOptimizedElementSize
 	data := loopTemplateData{
 		LoopSize:       10,
-		MaxElementSize: count,
+		MaxElementSize: build.MaxOptimizedElementSize,
+		MapKeySize:     build.MaxOptimizedMapKeySize,
 	}
 
 	tmpl, err := template.New("unrolledLoop").Funcs(template.FuncMap{
 		"rangeExclude": rangeExclude,
 		"rangeInclude": rangeInclude,
+		"rangeSize":    rangeSize,
 		"div":          div,
 		"sub":          sub,
 		"add":          add,
