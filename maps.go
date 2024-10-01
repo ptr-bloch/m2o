@@ -65,11 +65,13 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 	var debug []string
 
 	toolkit := b.getMapToolkit(mapType)
-	make, set := toolkit.Make, toolkit.Set
+	make, set, nilMap := toolkit.Make, toolkit.Set, toolkit.NilMap
 
 	var keyMalloc = b.getMemoryAllocator(keyType, "map key")
-	//проблема судя по всему здесь, для динамически собираемых структур аллоцировать нужно не для типа значения мапы, а для типа внутреннего значения
 	var valMalloc = b.getMemoryAllocator(valueType, "map value")
+
+	zeroOnEmpty := b.config.zeroOnEmpty
+	copyDefaultsFromBillet := b.config.copyDefaultsFromBillet
 
 	if value.Len() > 0 {
 		mapRange := value.MapRange()
@@ -80,8 +82,7 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 			exportName := mapRange.Key().String()
 			keyCopyPointer := reflect.New(keyType)
 			keyCopyPointer.Elem().Set(mapRange.Key())
-			keyCopy := keyCopyPointer.Elem()
-			keyPtr := unsafe.Pointer(keyCopy.UnsafeAddr())
+			keyPtr := keyCopyPointer.UnsafePointer()
 			value := mapRange.Value()
 
 			valueUnmarshaler, info := b.buildDecoder(value, valueType, 0)
@@ -96,9 +97,6 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 					valPtr := valMalloc()
 					valueUnmarshaler(sourceData, valPtr, isOmitted)
 					set(mapHeaderAddress, keyPtr, valPtr)
-
-					ensureGCDoesNotCollect(keyCopy)
-					ensureGCDoesNotCollect(valPtr)
 				},
 
 				n: exportName,
@@ -118,31 +116,32 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 			return nil, nil
 		}
 
-		zeroOnEmpty := b.config.zeroOnEmpty
-		copyDefaultsFromBillet := b.config.copyDefaultsFromBillet
-
 		return func(source any, parentAddress unsafe.Pointer, isOmitted bool) {
-			mapAddr := unsafe.Pointer(uintptr(parentAddress) + offsetFromParentAddress)
+			targetMapPtr := unsafe.Pointer(uintptr(parentAddress) + offsetFromParentAddress)
 
-			if source != nil ||
-				source == nil && zeroOnEmpty ||
-				source == nil && copyDefaultsFromBillet {
-
-				make(mapAddr)
-				// we've made a new map, if we have to leave it zero on empty input, just return
-				// we do not take into account b.config.copyDefaultsFromBillet as it should copy only if object should be decoded
-				// but while source data is nil, object should not be decoded
-				if source == nil && zeroOnEmpty {
-					return
-				}
-			}
-
-			if inputMap, ok := source.(mapStringAny); ok {
-				typedIterator(inputMap, mapAddr, isOmitted)
+			if source == nil && zeroOnEmpty {
+				// m = nil
+				nilMap(targetMapPtr)
 				return
 			}
 
-			slowMap(fields, source, mapAddr, fieldsRequiredByDefault)
+			// there is no way we left the map from billet object on targetMapPtr
+			// as it could lead to modification of freed object or concurrent map writes
+			// in any case if there is necessity to iterate through map, map should be initialized explicitly
+			// m = make(map[T]C)
+			make(targetMapPtr)
+
+			if source == nil && !copyDefaultsFromBillet {
+				return
+			}
+
+			if inputMap, ok := source.(mapStringAny); ok {
+				// m[Ki] = Vi
+				typedIterator(inputMap, targetMapPtr, isOmitted)
+				return
+			}
+
+			slowMap(fields, source, targetMapPtr, fieldsRequiredByDefault)
 		}, debug
 	}
 
@@ -156,10 +155,22 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 	valueUnmarshaler, info := b.buildDecoder(reflect.New(valueType).Elem(), valueType, 0)
 	debug = append(debug, info...)
 
-	return func(a any, parentAddress unsafe.Pointer, isOmitted bool) {
-		inputMap, ok := a.(mapStringAny)
-		mapUnsafePtr := unsafe.Pointer(uintptr(parentAddress) + offsetFromParentAddress)
-		make(mapUnsafePtr)
+	return func(source any, parentAddress unsafe.Pointer, isOmitted bool) {
+		targetMapPtr := unsafe.Pointer(uintptr(parentAddress) + offsetFromParentAddress)
+
+		if source == nil && zeroOnEmpty {
+			// m = nil
+			nilMap(targetMapPtr)
+			return
+		}
+
+		// there is no way we left the map from billet object on targetMapPtr
+		// as it could lead to modification of freed object or concurrent map writes
+		// in any case if there is necessity to iterate through map, map should be initialized explicitly
+		// m = make(map[T]C)
+		make(targetMapPtr)
+
+		inputMap, ok := source.(mapStringAny)
 
 		if ok {
 			for key, value := range inputMap {
@@ -168,7 +179,7 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 
 				valPtr := valMalloc()
 				valueUnmarshaler(value, valPtr, isOmitted)
-				set(mapUnsafePtr, keyPtr, valPtr)
+				set(targetMapPtr, keyPtr, valPtr)
 
 				runtime.KeepAlive(keyPtr)
 				runtime.KeepAlive(valPtr)
@@ -176,7 +187,7 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 			return
 		}
 
-		iterator := reflect.ValueOf(a).MapRange()
+		iterator := reflect.ValueOf(source).MapRange()
 		for iterator.Next() {
 			key := iterator.Key().Interface()
 			value := iterator.Value().Interface()
@@ -193,6 +204,7 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 
 type mapToolkit struct {
 	Make    func(mapHeaderAddress unsafe.Pointer)
+	NilMap  func(mapHeaderAddress unsafe.Pointer)
 	Set     func(mapHeaderAddress, keyAddress, valueAddress unsafe.Pointer)
 	Delete  func(mapHeaderAddress, keyAddress unsafe.Pointer)
 	Iterate func(mapHeaderAddress unsafe.Pointer, visitor func(key, value any))
@@ -299,6 +311,9 @@ func _m[K comparable, V any]() *mapToolkit {
 	return &mapToolkit{
 		Make: func(u unsafe.Pointer) {
 			*(*map[K]V)(u) = make(map[K]V)
+		},
+		NilMap: func(u unsafe.Pointer) {
+			*(*map[K]V)(u) = nil
 		},
 		Set: func(mapAddr, keyAddr, valAddr unsafe.Pointer) {
 			key := (*K)(keyAddr)
