@@ -339,7 +339,7 @@ func (b *builder) getSlowMapMaker(mapType reflect.Type) *mapToolkit {
 
 	return &mapToolkit{
 		Make: func(mapHeaderAddress unsafe.Pointer) {
-			pointerToMap := reflect.NewAt(mapType, unsafe.Pointer(mapHeaderAddress))
+			pointerToMap := reflect.NewAt(mapType, mapHeaderAddress)
 			mapValue := reflect.MakeMap(mapType)
 			pointerToMap.Elem().Set(mapValue)
 		},

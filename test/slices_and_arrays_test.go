@@ -1,6 +1,7 @@
 package test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/ptr-bloch/m2o"
@@ -14,6 +15,8 @@ type SliceStruct struct {
 }
 
 func TestSliceDecoding(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Names":   []interface{}{"Alice", "Bob"},
 		"Numbers": []interface{}{1, 2, 3},
@@ -43,6 +46,8 @@ func TestSliceDecoding(t *testing.T) {
 }
 
 func TestSliceWithInitializeDecoding(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Names":   []interface{}{"Alice", "Bob"},
 		"Numbers": []interface{}{1, 2, 3},
@@ -73,4 +78,44 @@ func TestSliceWithInitializeDecoding(t *testing.T) {
 	if len(result.Numbers) != 3 || result.Numbers[0] != 1 || result.Numbers[2] != 3 {
 		t.Errorf("Slice decoding failed: got %+v", result)
 	}
+}
+
+func TestHasIncorrectRefAfterSliceArray(t *testing.T) {
+	type sliceHolder struct {
+		Slice []struct {
+			A, B, C, D uint32
+		}
+	}
+
+	var source = map[string]interface{}{
+		"Slice": []map[string]interface{}{{
+			"A": 1,
+			"B": 2,
+			"C": 3,
+			"D": 4,
+		}},
+	}
+
+	var start = make(chan struct{})
+	var cycles = 100000
+	var wg sync.WaitGroup
+	decoder, err := m2o.NewDecoder(sliceHolder{})
+
+	if err != nil {
+		t.Fatalf("Error creating decoder: %v", err)
+	}
+
+	wg.Add(cycles)
+
+	for i := 0; i < cycles; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+
+			_ = decoder.Decode(source, &sliceHolder{})
+		}()
+	}
+
+	close(start)
+	wg.Wait()
 }
