@@ -414,14 +414,14 @@ type memoryAllocator func() unsafe.Pointer
 //
 //   - memoryAllocator - allocation function
 func (b *builder) getMemoryAllocator(t reflect.Type, purpose string) memoryAllocator {
-	var align = uintptr(t.Align() - 1)
-	var size = t.Size() + align
 	if b.profile != nil {
+		var size = t.Size()
 		return func() unsafe.Pointer {
-			ptr := &make([]byte, size)[0]
-			unsafePtr := unsafe.Pointer(ptr)
+			unsafeRef := reflect.New(t)
+			unsafePtr := unsafeRef.UnsafePointer()
+			unsafeAddr := unsafeRef.Interface()
 
-			runtime.SetFinalizer(ptr, func(any) {
+			runtime.SetFinalizer(unsafeAddr, func(any) {
 				b.profile.addMemoryFreed(unsafePtr, size, purpose)
 			})
 
@@ -431,11 +431,7 @@ func (b *builder) getMemoryAllocator(t reflect.Type, purpose string) memoryAlloc
 		}
 	} else {
 		return func() unsafe.Pointer {
-			startPtr := &make([]byte, size)[0]
-			// @todo check if can result in freeing by GC during converting
-			alignedPtr := unsafe.Pointer((uintptr(unsafe.Pointer(startPtr)) + align) &^ align)
-			ensureGCDoesNotCollect(startPtr)
-			return alignedPtr
+			return reflect.New(t).UnsafePointer()
 		}
 	}
 }
@@ -547,10 +543,10 @@ func (b *builder) buildDecoderToPointer(value reflect.Value, offset uintptr) (de
 
 	elemUnmarshaler, info := b.buildDecoder(underlineValue, underlineType, 0)
 	malloc := b.getMemoryAllocator(underlineType, "initialize pointer")
-	return createDecoderToPointer(offset, malloc, elemUnmarshaler), info
+	return createDecoderToPointer(offset, malloc, elemUnmarshaler, b.config.copyDefaultsFromBillet), info
 }
 
-func createDecoderToPointer(offset uintptr, elementMemoryAllocator memoryAllocator, elementDecoder decoderFunc) decoderFunc {
+func createDecoderToPointer(offset uintptr, elementMemoryAllocator memoryAllocator, elementDecoder decoderFunc, copyBillet bool) decoderFunc {
 	return func(sourceValue any, addressOfTargetPointer unsafe.Pointer, isOmitted bool) {
 		elemPtr := (*unsafe.Pointer)(unsafe.Pointer(uintptr(addressOfTargetPointer) + offset))
 		if isOmitted {
@@ -558,7 +554,7 @@ func createDecoderToPointer(offset uintptr, elementMemoryAllocator memoryAllocat
 			return
 		}
 
-		needReallocate := needReallocate(*elemPtr)
+		needReallocate := copyBillet || needReallocate(*elemPtr)
 		if needReallocate {
 			*elemPtr = elementMemoryAllocator()
 		}

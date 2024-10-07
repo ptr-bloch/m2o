@@ -27,7 +27,6 @@ SOFTWARE.
 import (
 	"fmt"
 	"reflect"
-	"runtime"
 	"unsafe"
 )
 
@@ -90,7 +89,7 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 
 			fields = append(fields, fieldDef{
 				u: func(sourceData any, mapHeaderAddress unsafe.Pointer, isOmitted bool) {
-					if isOmitted {
+					if isOmitted && !copyDefaultsFromBillet {
 						return
 					}
 
@@ -180,9 +179,6 @@ func (b *builder) buildToMapDecoder(value reflect.Value, offsetFromParentAddress
 				valPtr := valMalloc()
 				valueUnmarshaler(value, valPtr, isOmitted)
 				set(targetMapPtr, keyPtr, valPtr)
-
-				runtime.KeepAlive(keyPtr)
-				runtime.KeepAlive(valPtr)
 			}
 			return
 		}

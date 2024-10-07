@@ -1,12 +1,9 @@
 package test
 
 import (
-	"runtime"
+	"github.com/ptr-bloch/m2o"
 	"sync"
 	"testing"
-	"time"
-
-	"github.com/ptr-bloch/m2o"
 )
 
 type MapStruct struct {
@@ -126,35 +123,26 @@ func TestNonEmptyBilletMapResetsToNil(t *testing.T) {
 
 func TestMapConcurrentDecoding(t *testing.T) {
 	source := map[string]interface{}{
-		"Data": map[string]interface{}{
-			"key": map[string]interface{}{
-				"Data": map[string]int{
-					"key": 10,
-				},
+		"Inners": map[string]interface{}{
+			"Data": map[string]interface{}{
+				"key": 10,
 			},
 		},
 	}
 
-	decoder, err := m2o.NewDecoder(
-		struct {
-			Data map[string]interface{}
-		}{
-			Data: map[string]interface{}{
-				"key": &struct {
-					Data map[string]int
-				}{
-					Data: map[string]int{
-						"key": 11,
-					},
-				},
-			},
-		},
-		m2o.WithInitializeFromBillet(),
-		m2o.WithZeroOnEmpty(),
-	)
+	type innerStruct struct {
+		Data map[string]int
+	}
 
-	runtime.GC()
-	time.Sleep(time.Millisecond * 200)
+	type billetStruct struct {
+		Inners *innerStruct
+	}
+
+	billet := billetStruct{
+		Inners: &innerStruct{},
+	}
+
+	decoder, err := m2o.NewDecoder(billet)
 
 	if err != nil {
 		t.Fatalf("Error creating decoder: %v", err)
@@ -162,11 +150,11 @@ func TestMapConcurrentDecoding(t *testing.T) {
 
 	var wg sync.WaitGroup
 	c := make(chan struct{})
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 1000000; i++ {
 		wg.Add(1)
 		go func() {
-			<-c
 			defer wg.Done()
+			<-c
 			o, _ := decoder.Produce(source)
 			_ = o
 		}()

@@ -57,3 +57,34 @@ func TestPartialDecoding(t *testing.T) {
 		t.Fatalf("key2.B should be 5")
 	}
 }
+
+func TestBilletIsNotChangedWithInitializeFromBilletFlag(t *testing.T) {
+	type innerStruct struct {
+		A int
+	}
+
+	type outerStruct struct {
+		Inner *innerStruct
+	}
+
+	billet := outerStruct{
+		Inner: &innerStruct{A: 100},
+	}
+
+	decoder, err := m2o.NewDecoder(billet, m2o.WithInitializeFromBillet())
+
+	if decoder == nil {
+		t.Fatalf("decoder creation error: %v", err)
+	}
+
+	p, _ := decoder.Produce(map[string]interface{}{
+		"Inner": map[string]interface{}{
+			"A": 150,
+		},
+	})
+	_ = p
+
+	if billet.Inner.A != 100 {
+		t.Fatalf("billet should not be changed")
+	}
+}
