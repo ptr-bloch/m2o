@@ -799,8 +799,8 @@ func withInitializer(value reflect.Value) decoderFunc {
 		var uPtr = (*byte)(u)
 		p := unsafe.Slice(uPtr, size)
 		copy(p, c)
-		// all pointers from value should be alive
-		ensureGCDoesNotCollect(value)
+		// ensure value and all it's references are still alive
+		value.IsValid()
 	}
 }
 
