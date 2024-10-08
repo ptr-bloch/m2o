@@ -789,7 +789,8 @@ func composeDecoders(decoders []decoderFunc) decoderFunc {
 func withInitializer(value reflect.Value) decoderFunc {
 	size := value.Type().Size()
 	addressable := reflect.New(value.Type())
-	addressable.Elem().Set(value)
+	elem := addressable.Elem()
+	elem.Set(value)
 	var srcPtr = (*byte)(addressable.UnsafePointer())
 	tmp := unsafe.Slice(srcPtr, size)
 	c := make([]byte, size)
@@ -799,8 +800,8 @@ func withInitializer(value reflect.Value) decoderFunc {
 		var uPtr = (*byte)(u)
 		p := unsafe.Slice(uPtr, size)
 		copy(p, c)
-		// ensure value and all it's references are still alive
-		value.IsValid()
+		// ensure copied value and all it's references are still alive
+		elem.IsValid()
 	}
 }
 
