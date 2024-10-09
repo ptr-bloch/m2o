@@ -347,7 +347,6 @@ func createDecoderToInterface(elementMemoryAllocator memoryAllocator, decodeChil
 		}
 
 		var elemUnsafePtr = interfaceHeaderPtr.DataAddr
-		var elemPtr unsafe.Pointer
 
 		// nil pointer or pointer to stack, which cannot be modified
 		// trying to modify memory on stack we can corrupt stack, so we need to use some heuristic which will work in most cases
@@ -361,16 +360,12 @@ func createDecoderToInterface(elementMemoryAllocator memoryAllocator, decodeChil
 			//
 			// elem = new(ElementType)
 			elemUnsafePtr = elementMemoryAllocator()
+			// parent.field = newElem // assuming parent.field is of interface type
+			assignToInterface(interfaceHeaderUPtr, elemUnsafePtr)
 		}
 
 		// elem.* = decode(sourceData)
 		decodeChildElement(sourceData, elemUnsafePtr, isOmitted)
-
-		if needReallocate {
-			// parent.field = newElem // assuming parent.field is of interface type
-			assignToInterface(interfaceHeaderUPtr, elemUnsafePtr)
-			ensureGCDoesNotCollect(elemPtr)
-		}
 	}
 }
 
@@ -419,12 +414,13 @@ func (b *builder) getMemoryAllocator(t reflect.Type, purpose string) memoryAlloc
 			unsafeRef := reflect.New(t)
 			unsafePtr := unsafeRef.UnsafePointer()
 			unsafeAddr := unsafeRef.Interface()
+			unsafeUptr := uintptr(unsafePtr)
 
 			runtime.SetFinalizer(unsafeAddr, func(any) {
-				b.profile.addMemoryFreed(unsafePtr, size, purpose)
+				b.profile.AddMemoryFreed(unsafeUptr, size, purpose)
 			})
 
-			b.profile.addMemoryAllocated(unsafePtr, size, purpose)
+			b.profile.AddMemoryAllocated(unsafeUptr, size, purpose)
 
 			return unsafePtr
 		}
