@@ -15,6 +15,8 @@ type NestedInnerStruct struct {
 }
 
 func TestNestedStructDecoding(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Inner": map[string]interface{}{
 			"Value": 42,

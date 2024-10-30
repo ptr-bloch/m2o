@@ -12,6 +12,8 @@ type AliasedFieldStruct struct {
 }
 
 func TestAliasedFields(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"name_alias": "John",
 		"Age":        30,

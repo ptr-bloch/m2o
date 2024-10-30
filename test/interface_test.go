@@ -15,6 +15,8 @@ func (o StringWithSlice) GetName() string {
 }
 
 func TestInterfaceValuesDecoding(t *testing.T) {
+	t.Parallel()
+
 	var elBillet StringWithSlice
 	var elAnyInterfBillet any = &elBillet
 

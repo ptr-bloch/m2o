@@ -12,6 +12,8 @@ type OmittedFieldStruct struct {
 }
 
 func TestOmittedFields(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Age":          30,
 		"UnknownField": "value",

@@ -12,6 +12,8 @@ type UnexportedFieldStruct struct {
 }
 
 func TestUnexportedFields(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Name": "John",
 		"age":  30,

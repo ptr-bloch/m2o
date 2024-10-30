@@ -11,13 +11,16 @@ type CaseSensitivityStruct struct {
 }
 
 func TestCaseSensitivity(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Field": "Test",
 		"field": "Ignored",
 	}
 
 	var result CaseSensitivityStruct
-	decoder, err := m2o.NewDecoder(CaseSensitivityStruct{})
+	profile := m2o.NewProfile()
+	decoder, err := m2o.NewDecoder(CaseSensitivityStruct{}, m2o.WithProfile(profile))
 
 	if err != nil {
 		t.Fatalf("Error creating decoder: %v", err)

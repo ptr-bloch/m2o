@@ -15,6 +15,8 @@ type PointerStruct struct {
 }
 
 func TestPointerFields(t *testing.T) {
+	t.Parallel()
+
 	age := 30
 	source := map[string]interface{}{
 		"Age": age,

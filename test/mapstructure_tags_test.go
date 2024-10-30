@@ -12,6 +12,8 @@ type TagStruct struct {
 }
 
 func TestTagHandling(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"username": "John",
 		"user_age": 30,
@@ -41,6 +43,8 @@ type SpecialCharStruct struct {
 }
 
 func TestSpecialCharacterKeys(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"field_1": "Test",
 		"field-2": 100,

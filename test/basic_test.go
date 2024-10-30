@@ -13,6 +13,7 @@ type BasicStruct struct {
 }
 
 func TestBasicDecoding(t *testing.T) {
+	t.Parallel()
 	source := map[string]interface{}{
 		"Name":  "John",
 		"Age":   30,
@@ -37,17 +38,22 @@ func TestBasicDecoding(t *testing.T) {
 		t.Errorf("Decoding failed: got %+v", result)
 	}
 
-	checkMemoryUsage(t, profile, &result)
+	checkMemoryUsage(t, profile, func() {
+		_ = &result
+	})
 }
 
 func TestBasicProducing(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Name":  "John",
 		"Age":   30,
 		"Score": 85.5,
 	}
 
-	decoder, err := m2o.NewDecoder(BasicStruct{})
+	profile := m2o.NewProfile()
+	decoder, err := m2o.NewDecoder(BasicStruct{}, m2o.WithProfile(profile))
 
 	if err != nil {
 		t.Fatalf("Error creating decoder: %v", err)
@@ -64,11 +70,17 @@ func TestBasicProducing(t *testing.T) {
 	if result.Name != "John" || result.Age != 30 || result.Score != 85.5 {
 		t.Errorf("Decoding failed: got %+v", result)
 	}
+
+	checkMemoryUsage(t, profile, func() {
+		_ = &result
+	})
 }
 
 func TestIncorrectTarget(t *testing.T) {
-	decoder, err := m2o.NewDecoder(struct {
-	}{})
+	t.Parallel()
+
+	profile := m2o.NewProfile()
+	decoder, err := m2o.NewDecoder(struct{}{}, m2o.WithProfile(profile))
 
 	if decoder == nil {
 		t.Fatalf("error creating decoder: %v", err)

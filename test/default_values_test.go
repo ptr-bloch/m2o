@@ -13,6 +13,8 @@ type DefaultStruct struct {
 }
 
 func TestDefaultValues(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Name": "John",
 	}

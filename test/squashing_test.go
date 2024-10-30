@@ -21,6 +21,8 @@ type InnerStruct struct {
 }
 
 func TestEmbeddedSquashedStruct(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"InnerField": 42,
 		"OuterName":  "Test",
@@ -45,6 +47,8 @@ func TestEmbeddedSquashedStruct(t *testing.T) {
 }
 
 func TestEmbeddedNotSquashedImplicitlyStruct(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"InnerField": 42,
 		"OuterName":  "Test",
@@ -70,6 +74,8 @@ func TestEmbeddedNotSquashedImplicitlyStruct(t *testing.T) {
 }
 
 func TestSquashedStruct(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"InnerField": 42,
 		"OuterName":  "Test",

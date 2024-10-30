@@ -1,9 +1,10 @@
 package test
 
 import (
-	"github.com/ptr-bloch/m2o"
 	"reflect"
 	"testing"
+
+	"github.com/ptr-bloch/m2o"
 )
 
 func TestDecodingToEmptyInterfaceAsMap(t *testing.T) {
@@ -69,7 +70,7 @@ func TestDecodingStruct4FieldsToEmptyInterface(t *testing.T) {
 	if target, ok := target.(BasicStruct4Fields); !ok {
 		t.Fatal("target should contain instance of BasicStruct")
 	} else {
-		if *target.Name != "Bill" ||
+		if target.Name == nil || *target.Name != "Bill" ||
 			target.Age != 40 ||
 			target.Score != 120 {
 			t.Fatalf("fields are decoded incorrectly")
@@ -83,6 +84,8 @@ type BasicStruct1Field struct {
 
 // it's important to test this type of structure separately as golang assigns this type of structure with its own way
 func TestDecodingStructToEmptyInterface(t *testing.T) {
+	t.Parallel()
+
 	name := "John"
 	var example any = BasicStruct1Field{
 		Name: &name,

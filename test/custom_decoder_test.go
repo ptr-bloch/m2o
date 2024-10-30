@@ -8,6 +8,8 @@ import (
 )
 
 func TestCustomDecoder(t *testing.T) {
+	t.Parallel()
+
 	source := "1985-04-12T23:20:50Z"
 
 	decode, err := m2o.NewDecoder(time.Time{}, m2o.WithTimeDecoder(time.RFC3339))

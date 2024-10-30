@@ -8,6 +8,8 @@ import (
 )
 
 func TestBigIntDecoder(t *testing.T) {
+	t.Parallel()
+
 	source := "123456789012345678901234567890"
 
 	decode, err := m2o.NewDecoder(*big.NewInt(0), m2o.WithBigIntDecoder())

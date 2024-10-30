@@ -8,6 +8,8 @@ import (
 )
 
 func TestURLDecoder(t *testing.T) {
+	t.Parallel()
+
 	source := "https://www.example.com/path?query=123"
 
 	decode, err := m2o.NewDecoder(url.URL{}, m2o.WithURLDecoder())

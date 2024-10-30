@@ -9,6 +9,8 @@ import (
 )
 
 func TestIPDecoder(t *testing.T) {
+	t.Parallel()
+
 	source := "192.168.1.1"
 
 	decode, err := m2o.NewDecoder(net.IP{}, m2o.WithIPDecoder())

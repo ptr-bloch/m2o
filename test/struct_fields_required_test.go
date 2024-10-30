@@ -15,6 +15,8 @@ type StructWithMandatoryField struct {
 // 1. by default fields are not required
 // 2. requiring field by tag works
 func TestRequiredDecoding(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Optional": "optional",
 	}
@@ -35,6 +37,8 @@ func TestRequiredDecoding(t *testing.T) {
 
 // TestAllRequiredDecoding checks that requiring fields by default works
 func TestAllRequiredDecoding(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Required": "required",
 	}

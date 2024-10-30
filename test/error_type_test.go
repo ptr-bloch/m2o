@@ -11,6 +11,8 @@ type ErrorStruct struct {
 }
 
 func TestErrorCase(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Age": "invalid_int",
 	}

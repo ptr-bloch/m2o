@@ -20,6 +20,8 @@ type StructureToCheckZero[T any] struct {
 }
 
 func TestZeroScalarFieldOnEmpty(t *testing.T) {
+	t.Parallel()
+
 	notEmpty := uint64(0xffffffffffffffff)
 	source := map[string]interface{}{
 		"NotEmpty1": notEmpty,
@@ -51,6 +53,8 @@ func TestZeroScalarFieldOnEmpty(t *testing.T) {
 }
 
 func TestZeroPointerFieldOnEmpty(t *testing.T) {
+	t.Parallel()
+
 	notEmpty := uint64(0xffffffffffffffff)
 	source := map[string]interface{}{
 		"NotEmpty1": notEmpty,
@@ -82,6 +86,8 @@ func TestZeroPointerFieldOnEmpty(t *testing.T) {
 }
 
 func TestZeroEmptyInterfaceFieldOnEmpty(t *testing.T) {
+	t.Parallel()
+
 	notEmpty := uint64(0xffffffffffffffff)
 	source := map[string]interface{}{
 		"NotEmpty1": notEmpty,
@@ -119,6 +125,8 @@ type IntWithMethod int
 func (IntWithMethod) Method() {}
 
 func TestZeroTypedInterfaceFieldOnEmpty(t *testing.T) {
+	t.Parallel()
+
 	notEmpty := uint64(0xffffffffffffffff)
 	source := map[string]interface{}{
 		"NotEmpty1": notEmpty,
@@ -152,6 +160,8 @@ func TestZeroTypedInterfaceFieldOnEmpty(t *testing.T) {
 }
 
 func TestClearMapOnEmptyMap(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Prop1": "abc",
 		"Prop2": "def",
@@ -180,6 +190,8 @@ func TestClearMapOnEmptyMap(t *testing.T) {
 }
 
 func TestDeleteMapKeyOnEmptyKey(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Prop1": "abc",
 		"Prop2": "def",

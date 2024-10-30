@@ -246,18 +246,6 @@ func _ulm{{$count}}(f []fieldDef) d {
 
 type b = byte
 
-func getMapToolkitByKeyTypeAndValueReflection[K comparable](elementType reflect.Type) (r *mapToolkit) {
-	elementSize := elementType.Size()
-	switch elementSize {
-	{{- range $index := rangeSize .MaxElementSize }}
-	case {{ $index }}: r = _m[K, [{{ $index }}]b]()
-	{{- end }}
-	default:
-	}
-
-	return
-}
-
 func getMapToolkitForStructKeyAndValueByReflection(mapType reflect.Type) (r *mapToolkit) {
 	keySize := mapType.Key().Size()
 	e := mapType.Elem() 

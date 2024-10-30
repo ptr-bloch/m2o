@@ -12,6 +12,8 @@ type ZeroValueStruct struct {
 }
 
 func TestZeroValues(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Age": 0,
 	}

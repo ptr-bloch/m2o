@@ -13,6 +13,8 @@ type NonOptimizedBySizeType struct {
 }
 
 func TestStructExceedsMaxOptimizedSize(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Field": "Test",
 	}

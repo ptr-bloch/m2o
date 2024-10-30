@@ -11,6 +11,8 @@ type OneTypeFieldsStruct struct {
 }
 
 func TestTypedMap(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]int{
 		"A": 1,
 		"B": 2,

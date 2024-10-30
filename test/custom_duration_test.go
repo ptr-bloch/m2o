@@ -8,6 +8,8 @@ import (
 )
 
 func TestDurationDecoder(t *testing.T) {
+	t.Parallel()
+
 	source := "5m30s"
 
 	decode, err := m2o.NewDecoder(time.Duration(0), m2o.WithDurationDecoder())

@@ -128,6 +128,11 @@ type cacheUnit struct {
 	concreteType  reflect.Type
 }
 
+type profile interface {
+	AddMemoryAllocated(ptr, size uintptr, purpose string)
+	AddMemoryFreed(ptr, size uintptr, purpose string)
+}
+
 // builder builds optimized execution plan for concrete type
 // execution plan is a tree of decoder functions which call each other with nested data
 // this tree is created once for a target type for decoding and use every time when decoding is needed
@@ -150,7 +155,7 @@ type builder struct {
 	}
 	cache          map[cacheUnit]decoderFunc
 	debug          []string
-	profile        *profile
+	profile        profile
 	customDecoders map[reflect.Type]func(any) any
 }
 
@@ -360,12 +365,15 @@ func createDecoderToInterface(elementMemoryAllocator memoryAllocator, decodeChil
 			//
 			// elem = new(ElementType)
 			elemUnsafePtr = elementMemoryAllocator()
-			// parent.field = newElem // assuming parent.field is of interface type
-			assignToInterface(interfaceHeaderUPtr, elemUnsafePtr)
 		}
 
 		// elem.* = decode(sourceData)
 		decodeChildElement(sourceData, elemUnsafePtr, isOmitted)
+
+		if needReallocate {
+			// parent.field = newElem // assuming parent.field is of interface type
+			assignToInterface(interfaceHeaderUPtr, elemUnsafePtr)
+		}
 	}
 }
 
@@ -386,10 +394,6 @@ func assignToInterface(interfaceHeaderUPtr, originalInterfaceTypeAddr, concreteV
 	newHeaderPointer := (*interfaceHeader)(interfaceHeaderUPtr)
 	newHeaderPointer.TypeAddr = originalInterfaceTypeAddr
 	newHeaderPointer.DataAddr = concreteValueAddr
-}
-
-func ensureGCDoesNotCollect(b any) {
-	runtime.KeepAlive(b)
 }
 
 type memoryAllocator func() unsafe.Pointer

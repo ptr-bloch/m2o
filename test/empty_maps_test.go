@@ -7,6 +7,8 @@ import (
 )
 
 func TestEmptyMapDecoding(t *testing.T) {
+	t.Parallel()
+
 	var result BasicStruct
 	decoder, err := m2o.NewDecoder(BasicStruct{})
 

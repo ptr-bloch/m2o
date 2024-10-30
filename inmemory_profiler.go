@@ -27,6 +27,7 @@ SOFTWARE.
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 )
@@ -34,11 +35,13 @@ import (
 const logSize = 1024
 
 type memoryBlock struct {
+	// prevent L1 cache false sharing
+	_    [64]byte
 	size uintptr
 	free bool
 }
 
-type profile struct {
+type inMemoryProfile struct {
 	memoryAllocated        uint64
 	memoryAllocations      [logSize]string
 	memoryAllocationsIndex int32
@@ -47,26 +50,28 @@ type profile struct {
 	memoryFrees      [logSize]string
 	memoryFreesIndex int32
 
+	m sync.Mutex
+
 	blocks map[uintptr]memoryBlock
 }
 
-func NewProfile() *profile {
-	return &profile{
+func NewProfile() *inMemoryProfile {
+	return &inMemoryProfile{
 		blocks: make(map[uintptr]memoryBlock),
 	}
 }
 
-func (p *profile) GetMemoryAllocated() uint64 {
+func (p *inMemoryProfile) GetMemoryAllocated() uint64 {
 	return atomic.LoadUint64(&p.memoryAllocated)
 }
 
-func (p *profile) GetMemoryAllocations() []string {
+func (p *inMemoryProfile) GetMemoryAllocations() []string {
 	index := atomic.LoadInt32(&p.memoryAllocationsIndex)
 	return p.memoryAllocations[:min(logSize-1, index)]
 }
 
-func (p *profile) addMemoryAllocated(ptr unsafe.Pointer, size uintptr, purpose string) {
-	p.blocks[uintptr(ptr)] = memoryBlock{
+func (p *inMemoryProfile) AddMemoryAllocated(ptr, size uintptr, purpose string) {
+	p.blocks[ptr] = memoryBlock{
 		size: size,
 	}
 	atomic.AddUint64(&p.memoryAllocated, uint64(size))
@@ -74,19 +79,19 @@ func (p *profile) addMemoryAllocated(ptr unsafe.Pointer, size uintptr, purpose s
 	p.memoryAllocations[(index-1)%logSize] = purpose
 }
 
-func (p *profile) GetMemoryFreed() uint64 {
+func (p *inMemoryProfile) GetMemoryFreed() uint64 {
 	return atomic.LoadUint64(&p.memoryFreed)
 }
 
-func (p *profile) GetMemoryFrees() []string {
+func (p *inMemoryProfile) GetMemoryFrees() []string {
 	index := atomic.LoadInt32(&p.memoryFreesIndex)
 	return p.memoryFrees[:min(logSize-1, index)]
 }
 
-func (p *profile) addMemoryFreed(ptr unsafe.Pointer, size uintptr, purpose string) {
-	if mem, ok := p.blocks[uintptr(ptr)]; ok {
+func (p *inMemoryProfile) AddMemoryFreed(ptr, size uintptr, purpose string) {
+	if mem, ok := p.blocks[ptr]; ok {
 		mem.free = true
-		p.blocks[uintptr(ptr)] = mem
+		p.blocks[ptr] = mem
 	} else {
 		panic("freeing not allocated memory?")
 	}
@@ -96,17 +101,25 @@ func (p *profile) addMemoryFreed(ptr unsafe.Pointer, size uintptr, purpose strin
 	p.memoryFrees[(index-1)%logSize] = purpose
 }
 
-func (p *profile) HasFreedBlocks() bool {
+func (p *inMemoryProfile) checkBlocks(freed bool) bool {
 	for _, block := range p.blocks {
-		if block.free {
+		if block.free == freed {
 			return true
 		}
 	}
 	return false
 }
 
+func (p *inMemoryProfile) HasFreedBlocks() bool {
+	return p.checkBlocks(true)
+}
+
+func (p *inMemoryProfile) HasUsedBlocks() bool {
+	return p.checkBlocks(false)
+}
+
 // CheckObjectPtr checks if the memory blocks for the given object's fields are allocated and not free.
-func (p *profile) CheckObjectPtr(object any) error {
+func (p *inMemoryProfile) CheckObjectPtr(object any) error {
 	val := reflect.ValueOf(object)
 	if val.Kind() != reflect.Pointer {
 		panic("should call with pointer")
@@ -116,7 +129,7 @@ func (p *profile) CheckObjectPtr(object any) error {
 }
 
 // checkRecursive checks the memory of each field recursively.
-func (p *profile) checkRecursive(v reflect.Value) error {
+func (p *inMemoryProfile) checkRecursive(v reflect.Value) error {
 	switch v.Kind() {
 	case reflect.Ptr:
 		// If it's a pointer, dereference it
@@ -196,16 +209,30 @@ func (p *profile) checkRecursive(v reflect.Value) error {
 }
 
 // checkAddress checks if the address exists in blocks and if the block is not free.
-func (p *profile) checkAddress(address uintptr) error {
+func (p *inMemoryProfile) checkAddress(address uintptr) error {
 	block, found := p.blocks[address]
 	if !found {
 		return nil
-		//return fmt.Errorf("address %x not found in profile blocks", address)
+		//return fmt.Errorf("address %x not found in inMemoryProfile blocks", address)
 	}
 	if block.free {
 		return fmt.Errorf("memory block at address %x is marked as free", address)
 	}
 	return nil
+}
+
+func (p *inMemoryProfile) Merge(n *inMemoryProfile) {
+	defer p.m.Unlock()
+	p.m.Lock()
+
+	for k, v := range n.blocks {
+		if _, found := p.blocks[k]; found {
+			panic("duplicated memory in copied inMemoryProfile")
+		}
+		p.blocks[k] = v
+	}
+	p.memoryFreed += n.memoryFreed
+	p.memoryAllocated += n.memoryAllocated
 }
 
 func min(a, b int32) int32 {

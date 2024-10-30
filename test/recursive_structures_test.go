@@ -12,6 +12,8 @@ type RecursiveStruct struct {
 }
 
 func TestRecursiveStructDecoding(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Name": "Parent",
 		"Children": []interface{}{

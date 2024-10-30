@@ -301,6 +301,39 @@ func getMapToolkitForKnownKeyAndValueTypes[K comparable, V any]() *mapToolkit {
 	return _m[K, V]()
 }
 
+func getMapToolkitByKeyTypeAndValueReflection[K comparable](elementType reflect.Type) (r *mapToolkit) {
+	var k K
+	keyType := reflect.TypeOf(k)
+	mapType := reflect.MapOf(reflect.TypeOf(k), elementType)
+	zeroVal := reflect.Zero(elementType)
+	return &mapToolkit{
+		Make: func(mapHeaderAddress unsafe.Pointer) {
+			mapValue := reflect.NewAt(mapType, mapHeaderAddress).Elem()
+			m := reflect.MakeMap(mapType)
+			mapValue.Set(m)
+		},
+		NilMap: func(mapHeaderAddress unsafe.Pointer) {
+			*(*unsafe.Pointer)(mapHeaderAddress) = nil
+		},
+		Set: func(mapHeaderAddress, keyAddress, valueAddress unsafe.Pointer) {
+			mapValue := reflect.NewAt(mapType, mapHeaderAddress).Elem()
+			keyValue := reflect.NewAt(keyType, keyAddress).Elem()
+			valueValue := reflect.NewAt(elementType, valueAddress).Elem()
+			mapValue.SetMapIndex(keyValue, valueValue)
+		},
+		Delete: func(mapHeaderAddress, keyAddress unsafe.Pointer) {
+			keyValue := reflect.NewAt(keyType, keyAddress).Elem()
+			reflect.NewAt(mapType, mapHeaderAddress).Elem().SetMapIndex(keyValue, zeroVal)
+		},
+		Iterate: func(mapHeaderAddress unsafe.Pointer, visitor func(key any, value any)) {
+			rng := reflect.NewAt(mapType, mapHeaderAddress).Elem().MapRange()
+			for rng.Next() {
+				visitor(rng.Key().Interface(), rng.Value().Interface())
+			}
+		},
+	}
+}
+
 // _m see getMapToolkitForKnownKeyAndValueTypes
 // short name's used because function is widely used from generated code
 func _m[K comparable, V any]() *mapToolkit {

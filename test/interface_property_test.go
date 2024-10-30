@@ -23,6 +23,8 @@ func (s interfaceObject) GetName() string {
 }
 
 func TestInterfacePropertyDecoding(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Property": map[string]interface{}{
 			"Name": "John",
@@ -51,6 +53,8 @@ func TestInterfacePropertyDecoding(t *testing.T) {
 }
 
 func TestInterfacePropertyNotReallocatedWhenOnStack(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Property": map[string]interface{}{
 			"Name": "John",
@@ -87,6 +91,8 @@ func TestInterfacePropertyNotReallocatedWhenOnStack(t *testing.T) {
 }
 
 func TestInterfacePropertyReallocatedWhenOnHeap(t *testing.T) {
+	t.Parallel()
+
 	source := map[string]interface{}{
 		"Property": map[string]interface{}{
 			"Name": "John",
